@@ -20,10 +20,24 @@
         #video { width: 100%; height: 100%; object-fit: cover; }
         .container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .video-box { flex: 1; background: black; margin: 1rem; border-radius: 1rem; border: 2px solid #334155; overflow: hidden; }
-        .status { text-align: center; padding: 1rem; color: #cbd5e1; }
+        .status { text-align: center; padding: 1rem; color: #cbd5e1; font-size: 0.9rem; }
         .button-box { padding: 2rem 1rem; text-align: center; }
         button { width: 5rem; height: 5rem; border-radius: 50%; font-size: 2rem; border: 4px solid #1d4ed8; background: #2563eb; cursor: pointer; }
         button:disabled { background: #4b5563; border-color: #374151; cursor: not-allowed; }
+        .debug { 
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            right: 0; 
+            background: rgba(0,0,0,0.8); 
+            color: #0f0; 
+            font-family: monospace; 
+            font-size: 0.7rem; 
+            padding: 0.5rem; 
+            max-height: 100px; 
+            overflow-y: auto; 
+            z-index: 999;
+        }
     </style>
 </head>
 <body>
@@ -34,7 +48,7 @@
     
     <div class="container">
         <div class="video-box">
-            <video id="video" autoplay playsinline muted></video>
+            <video id="video" autoplay playsinline muted webkit-playsinline></video>
         </div>
         
         <div class="status" id="status">Loading camera...</div>
@@ -44,88 +58,120 @@
         </div>
     </div>
 
+    <div class="debug" id="debug"></div>
+
     <script>
         const video = document.getElementById('video');
         const status = document.getElementById('status');
         const btn = document.getElementById('btn');
         const count = document.getElementById('count');
+        const debug = document.getElementById('debug');
         let cardNum = 0;
+
+        function log(msg) {
+            console.log(msg);
+            debug.textContent += msg + '\n';
+            debug.scrollTop = debug.scrollHeight;
+        }
 
         async function startCamera() {
             try {
+                log('Requesting camera...');
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'environment' },
                     audio: false
                 });
+                log('Camera stream obtained');
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
-                    video.play();
-                    status.textContent = 'Ready to scan';
-                    btn.disabled = false;
+                    log('Video metadata loaded');
+                    video.play().then(() => {
+                        log('Video playing');
+                        status.textContent = 'Ready to scan';
+                        btn.disabled = false;
+                    });
                 };
             } catch (err) {
+                log('Camera error: ' + err.message);
                 status.textContent = 'Camera error: ' + err.message;
                 btn.disabled = true;
             }
         }
 
         async function capture() {
-            if (!video || !video.srcObject) return;
+            if (!video || !video.srcObject) {
+                log('ERROR: No video stream');
+                return;
+            }
+            
             btn.disabled = true;
-            status.textContent = 'Processing...';
+            status.textContent = 'Capturing...';
+            log('Starting capture...');
 
             try {
                 const canvas = document.createElement('canvas');
-                // Reduce resolution for faster processing
-                canvas.width = Math.min(video.videoWidth, 1280);
-                canvas.height = Math.min(video.videoHeight, 960);
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                log('Canvas size: ' + canvas.width + 'x' + canvas.height);
+                
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, 0, 0);
+                log('Image drawn to canvas');
 
-                // Convert to blob with heavy compression
-                canvas.toBlob(async (blob) => {
-                    if (!blob || blob.size === 0) {
-                        status.textContent = 'Capture error';
-                        btn.disabled = false;
-                        return;
-                    }
-
-                    const formData = new FormData();
-                    formData.append('image', blob, 'card.jpg');
-
-                    try {
-                        status.textContent = 'Uploading...';
-                        const res = await fetch('https://script.google.com/macros/s/AKfycbwIh65K656NuVNYI3TFFCTUgFxVLaeFCA_7pFuzjvlwvctau7Z8k4Yo-YPhqzA7S91ObQ/exec', {
-                            method: 'POST',
-                            body: formData
-                        });
-                        
-                        if (!res.ok) {
-                            throw new Error('Server error: ' + res.status);
-                        }
-                        
-                        const data = await res.json();
-                        
-                        if (data.success) {
-                            cardNum = data.cardNumber;
-                            count.textContent = cardNum;
-                            status.textContent = '✓ Card ' + cardNum + ' loaded';
-                            setTimeout(() => {
-                                status.textContent = 'Ready to scan';
+                canvas.toBlob(
+                    async (blob) => {
+                        try {
+                            if (!blob) {
+                                log('ERROR: No blob created');
+                                status.textContent = 'Capture error: no blob';
                                 btn.disabled = false;
-                            }, 1500);
-                        } else {
-                            status.textContent = 'Error: ' + (data.error || 'Failed');
+                                return;
+                            }
+                            
+                            log('Blob size: ' + (blob.size / 1024).toFixed(2) + ' KB');
+                            
+                            const formData = new FormData();
+                            formData.append('image', blob, 'card.jpg');
+                            log('FormData created, uploading...');
+                            
+                            status.textContent = 'Uploading...';
+                            
+                            const res = await fetch('https://script.google.com/macros/s/AKfycbwIh65K656NuVNYI3TFFCTUgFxVLaeFCA_7pFuzjvlwvctau7Z8k4Yo-YPhqzA7S91ObQ/exec', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            log('Response status: ' + res.status);
+                            const text = await res.text();
+                            log('Response received: ' + text.substring(0, 100));
+                            
+                            const data = JSON.parse(text);
+                            
+                            if (data.success) {
+                                cardNum = data.cardNumber;
+                                count.textContent = cardNum;
+                                status.textContent = '✓ Card ' + cardNum + ' loaded';
+                                log('SUCCESS: Card ' + cardNum + ' loaded');
+                                setTimeout(() => {
+                                    status.textContent = 'Ready to scan';
+                                    btn.disabled = false;
+                                }, 1500);
+                            } else {
+                                log('ERROR: ' + data.error);
+                                status.textContent = 'Error: ' + (data.error || 'Unknown');
+                                btn.disabled = false;
+                            }
+                        } catch (err) {
+                            log('Blob/Upload error: ' + err.message);
+                            status.textContent = 'Error: ' + err.message;
                             btn.disabled = false;
                         }
-                    } catch (err) {
-                        console.error('Error:', err);
-                        status.textContent = 'Upload error: ' + err.message;
-                        btn.disabled = false;
-                    }
-                }, 'image/jpeg', 0.7); // Reduced quality to 0.7
+                    },
+                    'image/jpeg',
+                    0.8
+                );
             } catch (err) {
-                console.error('Capture error:', err);
+                log('Capture error: ' + err.message);
                 status.textContent = 'Capture error: ' + err.message;
                 btn.disabled = false;
             }
