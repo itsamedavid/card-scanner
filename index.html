@@ -76,20 +76,36 @@
 
             try {
                 const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0);
+                // Reduce resolution for faster processing
+                canvas.width = Math.min(video.videoWidth, 1280);
+                canvas.height = Math.min(video.videoHeight, 960);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+                // Convert to blob with heavy compression
                 canvas.toBlob(async (blob) => {
+                    if (!blob || blob.size === 0) {
+                        status.textContent = 'Capture error';
+                        btn.disabled = false;
+                        return;
+                    }
+
                     const formData = new FormData();
                     formData.append('image', blob, 'card.jpg');
 
                     try {
+                        status.textContent = 'Uploading...';
                         const res = await fetch('https://script.google.com/macros/s/AKfycbwIh65K656NuVNYI3TFFCTUgFxVLaeFCA_7pFuzjvlwvctau7Z8k4Yo-YPhqzA7S91ObQ/exec', {
                             method: 'POST',
                             body: formData
                         });
+                        
+                        if (!res.ok) {
+                            throw new Error('Server error: ' + res.status);
+                        }
+                        
                         const data = await res.json();
+                        
                         if (data.success) {
                             cardNum = data.cardNumber;
                             count.textContent = cardNum;
@@ -103,12 +119,14 @@
                             btn.disabled = false;
                         }
                     } catch (err) {
-                        status.textContent = 'Upload error';
+                        console.error('Error:', err);
+                        status.textContent = 'Upload error: ' + err.message;
                         btn.disabled = false;
                     }
-                }, 'image/jpeg', 0.9);
+                }, 'image/jpeg', 0.7); // Reduced quality to 0.7
             } catch (err) {
-                status.textContent = 'Capture error';
+                console.error('Capture error:', err);
+                status.textContent = 'Capture error: ' + err.message;
                 btn.disabled = false;
             }
         }
