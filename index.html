@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Makes it feel like a native app when added to home screen -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Card Scanner">
     <link rel="apple-touch-icon" href="icon.png">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Card Scanner</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -25,10 +24,47 @@
         #video { width: 100%; height: 100%; object-fit: cover; }
         .container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .video-box { flex: 1; background: black; margin: 1rem; border-radius: 1rem; border: 2px solid #334155; overflow: hidden; }
-        .status { text-align: center; padding: 1rem; color: #cbd5e1; }
-        .button-box { padding: 2rem 1rem; text-align: center; }
-        button { width: 5rem; height: 5rem; border-radius: 50%; font-size: 2rem; border: 4px solid #1d4ed8; background: #2563eb; cursor: pointer; }
-        button:disabled { background: #4b5563; border-color: #374151; cursor: not-allowed; }
+        .status { 
+            text-align: center; 
+            padding: 0.75rem 1rem; 
+            font-size: 1rem;
+            font-weight: 600;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #cbd5e1;
+        }
+        .status.success { color: #86efac; }
+        .status.error { color: #fca5a5; }
+        .status.processing { color: #fef08a; }
+        .button-box { padding: 1.5rem 1rem 2rem; text-align: center; }
+        .capture-btn { 
+            width: 5.5rem; 
+            height: 5.5rem; 
+            border-radius: 50%; 
+            font-size: 2.2rem; 
+            border: 4px solid #1d4ed8; 
+            background: #2563eb; 
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .capture-btn:disabled { 
+            background: #1e293b; 
+            border-color: #334155; 
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .capture-btn.processing {
+            background: #d97706;
+            border-color: #b45309;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -45,17 +81,42 @@
         <div class="status" id="status">Loading camera...</div>
         
         <div class="button-box">
-            <button id="btn" onclick="capture()">📷</button>
+            <button class="capture-btn" id="btn" onclick="capture()">📷</button>
         </div>
     </div>
 
     <script>
         const video = document.getElementById('video');
-        const status = document.getElementById('status');
+        const statusEl = document.getElementById('status');
         const btn = document.getElementById('btn');
         const count = document.getElementById('count');
+        
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby18KxdL--C6QVi5dpKg26hRZvBTrfdzCtB46x-UuQV8d_3J4ScSwGvvxC5LDU5OVZD/exec';
         let cardNum = 0;
+
+        // Audio feedback
+        let audioCtx = null;
+        function playBeep(freq = 800, duration = 150) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration / 1000);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + duration / 1000);
+            } catch(e) {}
+        }
+        function playSuccess() { playBeep(1000, 100); setTimeout(() => playBeep(1200, 100), 150); }
+        function playError() { playBeep(400, 300); }
+
+        function setStatus(msg, type = '') {
+            statusEl.textContent = msg;
+            statusEl.className = 'status ' + type;
+        }
 
         async function startCamera() {
             try {
@@ -66,19 +127,21 @@
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
                     video.play();
-                    status.textContent = 'Ready to scan';
+                    setStatus('Ready to scan');
                     btn.disabled = false;
                 };
             } catch (err) {
-                status.textContent = 'Camera error: ' + err.message;
+                setStatus('Camera error: ' + err.message, 'error');
                 btn.disabled = true;
             }
         }
 
         async function capture() {
             if (!video || !video.srcObject) return;
+            
             btn.disabled = true;
-            status.textContent = 'Capturing...';
+            btn.classList.add('processing');
+            setStatus('Capturing...', 'processing');
 
             try {
                 const canvas = document.createElement('canvas');
@@ -86,37 +149,53 @@
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0);
 
-                // Get image as base64 string
                 const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-                status.textContent = 'Uploading...';
+                setStatus('Uploading & processing...', 'processing');
                 
-                // Send as URL-encoded form data (works with no-cors)
                 const params = new URLSearchParams();
                 params.append('image', base64Image);
                 
-                await fetch(SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: params.toString(),
-                    mode: 'no-cors'
-                });
-
-                status.textContent = 'Processing...';
-                
-                setTimeout(() => {
+                // Try WITHOUT no-cors so we can read the response
+                try {
+                    const response = await fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        cardNum++;
+                        count.textContent = cardNum;
+                        const flagged = data.flagged ? ' ⚠️ Review needed' : '';
+                        setStatus('✓ Card ' + cardNum + ' saved!' + flagged, 'success');
+                        playSuccess();
+                    } else {
+                        setStatus('Error: ' + (data.error || 'Unknown error'), 'error');
+                        playError();
+                    }
+                } catch (corsError) {
+                    // If CORS fails, fall back to no-cors
+                    console.log('CORS failed, falling back to no-cors');
+                    await fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString(),
+                        mode: 'no-cors'
+                    });
                     cardNum++;
                     count.textContent = cardNum;
-                    status.textContent = '✓ Card ' + cardNum + ' uploaded';
-                    
-                    setTimeout(() => {
-                        status.textContent = 'Ready to scan';
-                        btn.disabled = false;
-                    }, 1500);
-                }, 2000);
+                    setStatus('✓ Card ' + cardNum + ' uploaded', 'success');
+                    playSuccess();
+                }
 
             } catch (err) {
-                status.textContent = 'Error: ' + err.message;
+                setStatus('Error: ' + err.message, 'error');
+                playError();
+            } finally {
+                btn.classList.remove('processing');
                 btn.disabled = false;
             }
         }
