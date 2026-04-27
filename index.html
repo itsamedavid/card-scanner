@@ -81,43 +81,34 @@
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0);
 
-                canvas.toBlob(async (blob) => {
-                    if (!blob) {
-                        status.textContent = 'Capture error';
+                // Get image as base64 string
+                const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+
+                status.textContent = 'Uploading...';
+                
+                // Send as URL-encoded form data (works with no-cors)
+                const params = new URLSearchParams();
+                params.append('image', base64Image);
+                
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString(),
+                    mode: 'no-cors'
+                });
+
+                status.textContent = 'Processing...';
+                
+                setTimeout(() => {
+                    cardNum++;
+                    count.textContent = cardNum;
+                    status.textContent = '✓ Card ' + cardNum + ' uploaded';
+                    
+                    setTimeout(() => {
+                        status.textContent = 'Ready to scan';
                         btn.disabled = false;
-                        return;
-                    }
-
-                    try {
-                        status.textContent = 'Uploading...';
-                        
-                        const formData = new FormData();
-                        formData.append('image', blob, 'photo.jpg');
-
-                        await fetch(SCRIPT_URL, {
-                            method: 'POST',
-                            body: formData,
-                            mode: 'no-cors'
-                        });
-
-                        status.textContent = 'Processing...';
-                        
-                        setTimeout(() => {
-                            cardNum++;
-                            count.textContent = cardNum;
-                            status.textContent = '✓ Card ' + cardNum + ' uploaded';
-                            
-                            setTimeout(() => {
-                                status.textContent = 'Ready to scan';
-                                btn.disabled = false;
-                            }, 1500);
-                        }, 2000);
-
-                    } catch (err) {
-                        status.textContent = 'Upload error: ' + err.message;
-                        btn.disabled = false;
-                    }
-                }, 'image/jpeg', 0.8);
+                    }, 1500);
+                }, 2000);
 
             } catch (err) {
                 status.textContent = 'Error: ' + err.message;
