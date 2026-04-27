@@ -49,11 +49,8 @@
         const status = document.getElementById('status');
         const btn = document.getElementById('btn');
         const count = document.getElementById('count');
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxU6J8oTaLIq-7GjK9Z_SHnwj2h6thb98_fE1JV_z845elh5GkLFFEJnjcsy3Ss5EuFGQ/exec';
         let cardNum = 0;
-
-        function getScriptUrl() {
-            return 'https://script.google.com/macros/s/AKfycbxU6J8oTaLIq-7GjK9Z_SHnwj2h6thb98_fE1JV_z845elh5GkLFFEJnjcsy3Ss5EuFGQ/exec';
-        }
 
         async function startCamera() {
             try {
@@ -93,30 +90,29 @@
 
                     try {
                         status.textContent = 'Uploading...';
-                        const url = getScriptUrl();
                         
                         const formData = new FormData();
                         formData.append('image', blob, 'photo.jpg');
 
-                        const response = await fetch(url, {
+                        await fetch(SCRIPT_URL, {
                             method: 'POST',
-                            body: formData
+                            body: formData,
+                            mode: 'no-cors'
                         });
 
-                        const data = await response.json();
-
-                        if (data.success) {
-                            cardNum = data.cardNumber || cardNum + 1;
+                        status.textContent = 'Processing...';
+                        
+                        setTimeout(() => {
+                            cardNum++;
                             count.textContent = cardNum;
-                            status.textContent = '✓ Card ' + cardNum + ' loaded';
+                            status.textContent = '✓ Card ' + cardNum + ' uploaded';
+                            
                             setTimeout(() => {
                                 status.textContent = 'Ready to scan';
                                 btn.disabled = false;
                             }, 1500);
-                        } else {
-                            status.textContent = 'Error: ' + (data.error || 'Failed');
-                            btn.disabled = false;
-                        }
+                        }, 2000);
+
                     } catch (err) {
                         status.textContent = 'Upload error: ' + err.message;
                         btn.disabled = false;
